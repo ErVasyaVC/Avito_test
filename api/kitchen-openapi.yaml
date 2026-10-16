@@ -1,0 +1,431 @@
+openapi: 3.0.3
+info:
+  title: Avito Kitchen API
+  version: 0.1.0
+  description: API основного сервиса Авито.Кухня (для клиента и для заведений)
+servers:
+  - url: http://localhost:8080
+    description: Локально через docker compose
+paths:
+  /categories:
+    get:
+      operationId: listCategories
+      summary: Список категорий еды (CJM пользователя — "Выбрать категорию еды")
+      responses:
+        "200":
+          description: Список категорий
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Category"
+
+  /venues:
+    get:
+      operationId: listVenues
+      summary: Список заведений, опционально по категории (CJM — "Выбрать заведение из списка")
+      parameters:
+        - name: category_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Список заведений
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Venue"
+
+  /venues/{venueId}:
+    get:
+      operationId: getVenue
+      summary: Детали заведения
+      parameters:
+        - $ref: "#/components/parameters/VenueId"
+      responses:
+        "200":
+          description: Заведение
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Venue"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /venues/{venueId}/menu:
+    get:
+      operationId: getVenueMenu
+      summary: Меню заведения (CJM — "Просмотреть меню")
+      parameters:
+        - $ref: "#/components/parameters/VenueId"
+      responses:
+        "200":
+          description: Позиции меню (включая недоступные — is_available=false, но ещё не removed)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MenuItem"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /orders:
+    post:
+      operationId: createOrder
+      summary: Оформить заказ (CJM — "Заказ создан"); валидирует доступность каждой позиции
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrderRequest"
+      responses:
+        "201":
+          description: Заказ создан
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "409":
+          description: Один или несколько товаров стали недоступны с момента добавления в корзину
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UnavailableItemsError"
+
+  /orders/{orderId}:
+    get:
+      operationId: getOrder
+      summary: Статус и детали заказа (CJM — "Отслеживает статус")
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      responses:
+        "200":
+          description: Заказ
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /orders/{orderId}/cancel:
+    post:
+      operationId: cancelOrder
+      summary: Отменить заказ (CJM — "Пользователь отменяет заказ?"); только статус created/accepted
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      responses:
+        "200":
+          description: Заказ отменён
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Заказ уже готовится или дальше по статусу — отмена недоступна
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /internal/orders/{orderId}/status:
+    patch:
+      operationId: receiveVenueStatusUpdate
+      summary: Вебхук от venue-service — сообщает о смене статуса заказа (cooking/ready/cancelled_by_venue)
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VenueStatusWebhookRequest"
+      responses:
+        "200":
+          description: Статус обновлён
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Недопустимый переход статуса
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /orders/{orderId}/status:
+    patch:
+      operationId: advanceDelivery
+      summary: "Статус доставки: ready -> delivering -> delivered"
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [delivering, delivered]
+      responses:
+        "200":
+          description: Статус обновлён
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Недопустимый переход статуса
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /internal/venues/{venueId}/menu/{itemId}:
+    put:
+      operationId: syncMenuItem
+      summary: Вебхук от venue-service — полное текущее состояние товара (добавлен/изменён/выключен/убран). kitchen-api просто перезаписывает свою кэш-строку
+      parameters:
+        - $ref: "#/components/parameters/VenueId"
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MenuItemSyncRequest"
+      responses:
+        "204":
+          description: Кэш синхронизирован
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  parameters:
+    VenueId:
+      name: venueId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    NotFound:
+      description: Не найдено
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Category:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: "Итальянская кухня"
+
+    Venue:
+      type: object
+      required: [id, name, categories]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/Category"
+
+    MenuItem:
+      type: object
+      required: [id, name, price, isAvailable]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        price:
+          type: string
+          description: Денежная сумма как строка (соответствует NUMERIC(10,2) в БД), чтобы не терять точность на float
+          example: "350.00"
+        isAvailable:
+          type: boolean
+
+    OrderItemInput:
+      type: object
+      required: [menuItemId, quantity]
+      properties:
+        menuItemId:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+          minimum: 1
+
+    CreateOrderRequest:
+      type: object
+      required: [venueId, items, customerName, customerPhone, deliveryAddress]
+      properties:
+        venueId:
+          type: string
+          format: uuid
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/OrderItemInput"
+        customerName:
+          type: string
+        customerPhone:
+          type: string
+        deliveryAddress:
+          type: string
+        comment:
+          type: string
+
+    OrderItem:
+      type: object
+      required: [menuItemId, name, price, quantity]
+      properties:
+        menuItemId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: Снимок названия на момент заказа
+        price:
+          type: string
+          description: Снимок цены на момент заказа
+        quantity:
+          type: integer
+
+    Order:
+      type: object
+      required: [id, venueId, status, items, customerName, customerPhone, deliveryAddress, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        venueId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/OrderStatus"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderItem"
+        customerName:
+          type: string
+        customerPhone:
+          type: string
+        deliveryAddress:
+          type: string
+        comment:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    OrderStatus:
+      type: string
+      enum:
+        - created
+        - accepted
+        - rejected
+        - cancelled_by_user
+        - cooking
+        - cancelled_by_venue
+        - ready
+        - delivering
+        - delivered
+
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+
+    UnavailableItemsError:
+      type: object
+      required: [message, unavailableItemIds]
+      properties:
+        message:
+          type: string
+        unavailableItemIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+
+    VenueStatusWebhookRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [cooking, ready, cancelled_by_venue]
+
+    MenuItemSyncRequest:
+      type: object
+      required: [name, price, isAvailable]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        price:
+          type: string
+          example: "350.00"
+        isAvailable:
+          type: boolean
+        removedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Заполнено, если товар убран из меню (soft delete на стороне venue-service)

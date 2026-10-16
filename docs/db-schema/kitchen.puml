@@ -1,0 +1,83 @@
+@startuml db-schema-kitchen
+title kitchen-db (kitchen-api)
+
+entity "venues" as venues {
+  * id : UUID <<PK>>
+  --
+  name : TEXT
+  api_base_url : TEXT
+  is_active : BOOLEAN
+  created_at : TIMESTAMPTZ
+}
+
+entity "categories" as categories {
+  * id : UUID <<PK>>
+  --
+  name : TEXT
+}
+
+entity "venue_categories" as venue_categories {
+  * venue_id : UUID <<FK>>
+  * category_id : UUID <<FK>>
+}
+
+entity "menu_items" as menu_items {
+  * id : UUID <<PK>>
+  --
+  venue_id : UUID <<FK>>
+  external_id : TEXT
+  name : TEXT
+  description : TEXT
+  price : NUMERIC(10,2)
+  is_available : BOOLEAN
+  removed_at : TIMESTAMPTZ <<nullable>>
+  updated_at : TIMESTAMPTZ
+}
+
+note right of menu_items
+  is_available — временный тумблер
+  ("выключить", кончилось на сегодня)
+  removed_at — товар убран из меню совсем
+  (NULL = ещё в меню). Не DELETE, чтобы
+  не сломать FK у старых order_items
+end note
+
+entity "orders" as orders {
+  * id : UUID <<PK>>
+  --
+  venue_id : UUID <<FK>>
+  status : TEXT
+  customer_name : TEXT
+  customer_phone : TEXT
+  delivery_address : TEXT
+  comment : TEXT
+  created_at : TIMESTAMPTZ
+  updated_at : TIMESTAMPTZ
+}
+
+entity "order_items" as order_items {
+  * id : UUID <<PK>>
+  --
+  order_id : UUID <<FK>>
+  menu_item_id : UUID <<FK>>
+  name_snapshot : TEXT
+  price_snapshot : NUMERIC(10,2)
+  quantity : INTEGER
+}
+
+entity "order_status_history" as order_status_history {
+  * id : UUID <<PK>>
+  --
+  order_id : UUID <<FK>>
+  status : TEXT
+  changed_at : TIMESTAMPTZ
+}
+
+venues ||--o{ menu_items
+venues ||--o{ orders
+venues ||--o{ venue_categories
+categories ||--o{ venue_categories
+orders ||--o{ order_items
+menu_items ||--o{ order_items
+orders ||--o{ order_status_history
+@enduml

@@ -1,0 +1,53 @@
+@startuml order-flow
+title Жизненный цикл заказа
+
+actor "Клиент" as client
+
+box "kitchen-api"
+participant "kitchen-api" as K
+database "kitchen-db" as KDB
+end box
+
+box "заведение"
+participant "venue-service" as V
+database "venue-db" as VDB
+end box
+
+client -> K ++ : POST /orders
+K -> KDB : создать заказ
+K -> V ++ : POST /orders
+V -> VDB : сохранить
+V --> K -- : 200 / 409
+K -> KDB : обновить статус
+K --> client -- : 201
+
+...
+
+V -> VDB : cooking
+V -> K ++ : PATCH .../status
+K -> KDB : обновить статус
+K --> V -- : 200
+
+V -> VDB : ready
+V -> K ++ : PATCH .../status
+K -> KDB : обновить статус
+K --> V -- : 200
+
+client -> K ++ : GET /orders/{id}
+K -> KDB : прочитать
+K --> client -- : статус
+
+client -> K ++ : PATCH /orders/{id}/status
+K -> KDB : обновить статус
+K --> client -- : 200
+
+== отмена ==
+
+client -> K ++ : POST /orders/{id}/cancel
+K -> KDB : отменить
+K -> V ++ : уведомить
+V -> VDB : cancelled_by_user
+V --> K -- : OK
+K --> client -- : 200 / 409
+
+@enduml

@@ -1,0 +1,31 @@
+@startuml c4-container
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+!include https://raw.githubusercontent.com/tupadr3/plantuml-icon-font-sprites/master/devicons/go.puml
+!include https://raw.githubusercontent.com/tupadr3/plantuml-icon-font-sprites/master/devicons2/postgresql.puml
+
+title Авито.Кухня — C4 Container Diagram (Level 2)
+
+LAYOUT_TOP_DOWN()
+
+Person(user, "Пользователь", "Хочет заказать еду через веб-версию Авито.Кухня")
+System_Ext(web_client, "Веб-клиент")
+
+System_Boundary(kitchen_boundary, "Авито.Кухня") {
+  Container(kitchen_api, "kitchen-api", "Go", "Главный сервис: API для пользователей и заведений, оркестрация заказов", $sprite="go")
+  ContainerDb(kitchen_db, "kitchen-db", "PostgreSQL", "Заведения, кэш меню, заказы", $sprite="postgresql")
+}
+
+System_Boundary(venue_boundary, "Заведение (демо-интеграция)") {
+  Container(venue_service, "venue-service", "Go", "Эмулирует бэкенд одного заведения: своё меню, обработка заказов", $sprite="go")
+  ContainerDb(venue_db, "venue-db", "PostgreSQL", "Меню и заказы конкретного заведения", $sprite="postgresql")
+}
+
+Rel(user, web_client, "Использует", "HTTPS")
+Rel(web_client, kitchen_api, "Смотрит заведения/меню, оформляет заказ", "HTTPS/JSON, REST")
+Rel(kitchen_api, kitchen_db, "Читает/пишет", "SQL")
+Rel(kitchen_api, venue_service, "Передаёт заказ, запрашивает меню", "HTTPS/JSON, REST")
+Rel(venue_service, kitchen_api, "Уведомляет об изменении статуса заказа", "HTTPS/JSON, webhook")
+Rel(venue_service, venue_db, "Читает/пишет", "SQL")
+
+LAYOUT_WITH_LEGEND()
+@enduml

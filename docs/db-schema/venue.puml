@@ -1,0 +1,45 @@
+@startuml db-schema-venue
+title venue-db (venue-service)
+
+entity "menu_items" as menu_items {
+  * id : UUID <<PK>>
+  --
+  name : TEXT
+  description : TEXT
+  price : NUMERIC(10,2)
+  is_available : BOOLEAN
+  removed_at : TIMESTAMPTZ <<nullable>>
+  updated_at : TIMESTAMPTZ
+}
+
+note left of menu_items
+  Источник правды для меню.
+  is_available — тумблер вкл/выкл.
+  removed_at — товар убран из меню
+  (soft delete, не DELETE).
+  kitchen-api подтягивает эти поля
+  при синхронизации кэша.
+end note
+
+entity "orders" as orders {
+  * id : UUID <<PK>>
+  --
+  kitchen_order_id : UUID <<UNIQUE>>
+  status : TEXT
+  created_at : TIMESTAMPTZ
+  updated_at : TIMESTAMPTZ
+}
+
+entity "order_items" as order_items {
+  * id : UUID <<PK>>
+  --
+  order_id : UUID <<FK>>
+  menu_item_id : UUID <<FK>>
+  name_snapshot : TEXT
+  price_snapshot : NUMERIC(10,2)
+  quantity : INTEGER
+}
+
+orders ||--o{ order_items
+menu_items ||--o{ order_items
+@enduml

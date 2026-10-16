@@ -1,0 +1,145 @@
+services:
+  kitchen-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - kitchen-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  venue-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${VENUE_POSTGRES_DB}
+      POSTGRES_USER: ${VENUE_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${VENUE_POSTGRES_PASSWORD}
+    ports:
+      - "5433:5432"
+    volumes:
+      - venue-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${VENUE_POSTGRES_USER} -d ${VENUE_POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  kitchen-test-db:
+    image: postgres:16-alpine
+    profiles: ["test"]
+    environment:
+      POSTGRES_DB: kitchen_test
+      POSTGRES_USER: kitchen
+      POSTGRES_PASSWORD: kitchen
+    ports:
+      - "5442:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kitchen -d kitchen_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  venue-test-db:
+    image: postgres:16-alpine
+    profiles: ["test"]
+    environment:
+      POSTGRES_DB: venue_test
+      POSTGRES_USER: venue
+      POSTGRES_PASSWORD: venue
+    ports:
+      - "5443:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U venue -d venue_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  kitchen-api:
+    build:
+      context: ./services/kitchen-api
+      target: dev
+    volumes:
+      - ./services/kitchen-api:/app
+    depends_on:
+      kitchen-db:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      VENUE_SERVICE_URL: ${VENUE_SERVICE_URL}
+    command: >
+      sh -c "migrate -path /app/migrations
+      -database postgres://$$POSTGRES_USER:$$POSTGRES_PASSWORD@$$POSTGRES_HOST:$$POSTGRES_PORT/$$POSTGRES_DB?sslmode=disable
+      up &&
+      air -c .air.toml"
+    ports:
+      - "8080:8080"
+
+  venue-service:
+    build:
+      context: ./services/venue-service
+      target: dev
+    volumes:
+      - ./services/venue-service:/app
+    depends_on:
+      venue-db:
+        condition: service_healthy
+      kitchen-api:
+        condition: service_started
+    environment:
+      POSTGRES_HOST: ${VENUE_POSTGRES_HOST}
+      POSTGRES_PORT: ${VENUE_POSTGRES_PORT}
+      POSTGRES_DB: ${VENUE_POSTGRES_DB}
+      POSTGRES_USER: ${VENUE_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${VENUE_POSTGRES_PASSWORD}
+      KITCHEN_API_URL: ${KITCHEN_API_URL}
+      KITCHEN_VENUE_ID: ${KITCHEN_VENUE_ID}
+    command: >
+      sh -c "migrate -path /app/migrations
+      -database postgres://$$POSTGRES_USER:$$POSTGRES_PASSWORD@$$POSTGRES_HOST:$$POSTGRES_PORT/$$POSTGRES_DB?sslmode=disable
+      up &&
+      air -c .air.toml"
+    ports:
+      - "8081:8081"
+
+  swagger-ui:
+    image: swaggerapi/swagger-ui
+    environment:
+      URLS: >
+        [
+          {"url": "/specs/kitchen-openapi.yaml", "name": "kitchen-api"},
+          {"url": "/specs/venue-openapi.yaml", "name": "venue-service"}
+        ]
+    volumes:
+      - ./api:/usr/share/nginx/html/specs
+    ports:
+      - "8082:8080"
+
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    ports:
+      - "8083:80"
+
+volumes:
+  kitchen-db-data:
+  venue-db-data:
+  pgadmin-data:
